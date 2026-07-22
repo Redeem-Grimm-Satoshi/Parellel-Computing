@@ -17,6 +17,7 @@ myth machine, so my core-scaling ceilings are ~2x the handout's):
 |---|---|---|---|
 | Lecture 1: Why Parallelism? Why Efficiency? | [Lecture 1 Summary](Lectures/Lecture%201/Lecture%201%20Summary.md) | [Assignment 1](Assignments/Assignment%201/) | 7.5x threaded Mandelbrot (interleaved decomposition) · SIMD intrinsics w/ 90->83% utilization analysis · 58-65x ISPC+tasks · divergence best/worst-case sqrt (6.6x vs 0.9x) · bandwidth-bound saxpy · 2.5x k-means via profiling + lock-free point partitioning |
 | Lecture 2: A Modern Multi-Core Processor | [Lecture 2 Summary](Lectures/Lecture%202/Lecture%202%20Summary.md) | - | Cache hierarchy and locality · superscalar vs multi-core vs SIMD · divergence and masking · hardware multi-threading for latency hiding |
+| Lecture 3: Multi-threading, Throughput, and ISPC | [Lecture 3 Summary](Lectures/Lecture%203/Lecture%203%20Summary.md) | - | Switch-on-stall latency hiding · latency vs bandwidth · the 1% efficiency memory wall · ISPC gangs, programIndex/programCount, foreach |
 
 *(more lectures and assignments coming as the course progresses)*
 
