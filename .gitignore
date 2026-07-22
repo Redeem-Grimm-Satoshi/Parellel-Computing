@@ -1,0 +1,23 @@
+# build artifacts
+objs/
+*.o
+*.ppm
+*.log
+
+# large generated dataset
+data.dat
+
+# compiled binaries
+**/mandelbrot
+**/mandelbrot_ispc
+**/myexp
+**/sqrt
+**/saxpy
+**/kmeans
+**/gen_data
+!**/gen_data.cpp
+
+# editor/os noise
+*~
+.DS_Store
+Thumbs.db

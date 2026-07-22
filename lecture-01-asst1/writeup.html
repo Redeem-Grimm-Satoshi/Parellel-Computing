@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CS149 Assignment 1 - Performance Analysis Writeup</title>
+<style>
+  :root { --ink:#1a1a1a; --muted:#555; --line:#d0d0d0; --accent:#0b5fff; --good:#0a7a2f; --bad:#b00020; --bg:#fafafa; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+         color: var(--ink); max-width: 820px; margin: 0 auto; padding: 32px 28px 64px;
+         line-height: 1.5; font-size: 14.5px; }
+  h1 { font-size: 25px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 34px 0 6px; border-bottom: 2px solid var(--accent); padding-bottom: 4px; }
+  h3 { font-size: 15.5px; margin: 18px 0 4px; color: #222; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 4px;}
+  .env { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font-size: 12.5px; margin: 12px 0 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 5px 9px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { background: #eef3ff; }
+  tbody tr:nth-child(even) { background: #f7f9ff; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  pre { background: #f6f8fa; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: 12px; }
+  .q { font-weight: 600; color: #333; margin-top: 10px; }
+  .a { margin: 3px 0 8px; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .k { color: var(--accent); font-weight: 600; }
+  ul { margin: 4px 0 8px; padding-left: 22px; }
+  li { margin: 2px 0; }
+  .note { font-size: 12px; color: var(--muted); font-style: italic; }
+  figure { margin: 14px 0; text-align:center; }
+  figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  @media print { body { padding: 0 6px; font-size: 12px; } h2 { page-break-after: avoid; } table, figure, pre { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+
+<h1>CS149 Assignment 1: Performance Analysis</h1>
+<p class="sub"><strong>Name:</strong> _________________________ &nbsp;&nbsp; <strong>SUNet ID:</strong> ______________</p>
+
+<div class="env">
+<strong>Test machine used for all measurements below.</strong> The handout targets a
+<em>quad-core</em> Intel i7 (4 cores / 8 threads, 8-wide AVX2). All numbers here were collected on:
+<br><strong>AMD Ryzen 7 6800HS - 8 physical cores / 16 threads (SMT2), AVX2 + FMA (no AVX-512)</strong>,
+Ubuntu 24.04 (WSL2), g++ 13.3 <code>-O3</code>, ISPC 1.28.1 (<code>--target=avx2-i32x8</code>).
+Because this box has <em>twice</em> the cores of the reference machine, the core-scaling ceilings are
+roughly doubled (e.g. Program 3 theoretical max ≈ 8 lanes × 8 cores = <strong>64×</strong>, vs 32× on a quad-core).
+Trends and conclusions are identical; only the absolute ceilings differ.
+</div>
+
+<!-- ============================ PROGRAM 1 ============================ -->
+<h2>Program 1 - Parallel Fractal Generation Using Threads</h2>
+
+<p><strong>Approach.</strong> Each worker calls <code>mandelbrotSerial()</code> on a subset of image rows.
+I first implemented the naïve <em>block</em> decomposition (thread <em>t</em> gets a contiguous band of
+<code>height/numThreads</code> rows), then replaced it with an <em>interleaved</em> (cyclic) decomposition
+that fixes load imbalance:</p>
+<pre>// Final: interleaved rows - thread t computes rows t, t+numThreads, t+2*numThreads, ...
+for (unsigned int row = args-&gt;threadId; row &lt; args-&gt;height; row += args-&gt;numThreads)
+    mandelbrotSerial(x0,y0,x1,y1, width, height, /*startRow=*/row, /*numRows=*/1, maxIterations, output);</pre>
+
+<h3>Speedup vs. thread count (View 1)</h3>
+<table>
+<thead><tr><th>Threads</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>16</th></tr></thead>
+<tbody>
+<tr><td>Block (naïve)</td><td>1.99×</td><td>1.78×</td><td>2.33×</td><td>2.51×</td><td>3.04×</td><td>3.43×</td><td>4.03×</td><td>7.44×</td></tr>
+<tr><td>Interleaved (final)</td><td>2.01×</td><td>2.98×</td><td>3.88×</td><td>4.88×</td><td>5.09×</td><td>6.70×</td><td class="good">7.54×</td><td>10.22×</td></tr>
+</tbody>
+</table>
+
+<figure>
+<svg width="660" height="390" viewBox="0 0 660 390" font-family="Segoe UI, sans-serif" font-size="12">
+  <!-- gridlines + y ticks (s=0,2,4,6,8) -->
+  <g stroke="#e3e3e3"><line x1="60" y1="360" x2="620" y2="360"/><line x1="60" y1="275" x2="620" y2="275"/>
+     <line x1="60" y1="190" x2="620" y2="190"/><line x1="60" y1="105" x2="620" y2="105"/><line x1="60" y1="20" x2="620" y2="20"/></g>
+  <!-- axes -->
+  <g stroke="#333" stroke-width="1.3"><line x1="60" y1="20" x2="60" y2="360"/><line x1="60" y1="360" x2="620" y2="360"/></g>
+  <!-- y labels -->
+  <g fill="#555" text-anchor="end"><text x="52" y="364">0</text><text x="52" y="279">2</text><text x="52" y="194">4</text><text x="52" y="109">6</text><text x="52" y="24">8</text></g>
+  <text x="18" y="200" transform="rotate(-90 18 200)" fill="#333" text-anchor="middle">Speedup (×)</text>
+  <!-- x labels t=2..8 -->
+  <g fill="#555" text-anchor="middle">
+    <text x="60" y="376">2</text><text x="153" y="376">3</text><text x="247" y="376">4</text><text x="340" y="376">5</text>
+    <text x="433" y="376">6</text><text x="527" y="376">7</text><text x="620" y="376">8</text></g>
+  <text x="340" y="390" fill="#333" text-anchor="middle">Number of threads</text>
+  <!-- Ideal (dashed grey) -->
+  <polyline fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="5 4"
+    points="60,275 153.3,232.5 246.7,190 340,147.5 433.3,105 526.7,62.5 620,20"/>
+  <!-- Interleaved (blue) -->
+  <polyline fill="none" stroke="#0b5fff" stroke-width="2.2"
+    points="60,274.6 153.3,233.4 246.7,195.1 340,152.6 433.3,143.7 526.7,75.3 620,39.6"/>
+  <g fill="#0b5fff"><circle cx="60" cy="274.6" r="3"/><circle cx="153.3" cy="233.4" r="3"/><circle cx="246.7" cy="195.1" r="3"/><circle cx="340" cy="152.6" r="3"/><circle cx="433.3" cy="143.7" r="3"/><circle cx="526.7" cy="75.3" r="3"/><circle cx="620" cy="39.6" r="3"/></g>
+  <!-- Block (red) -->
+  <polyline fill="none" stroke="#b00020" stroke-width="2.2"
+    points="60,275.4 153.3,284.4 246.7,261 340,253.3 433.3,230.8 526.7,214.2 620,188.7"/>
+  <g fill="#b00020"><circle cx="60" cy="275.4" r="3"/><circle cx="153.3" cy="284.4" r="3"/><circle cx="246.7" cy="261" r="3"/><circle cx="340" cy="253.3" r="3"/><circle cx="433.3" cy="230.8" r="3"/><circle cx="526.7" cy="214.2" r="3"/><circle cx="620" cy="188.7" r="3"/></g>
+  <!-- legend -->
+  <g font-size="12"><line x1="360" y1="300" x2="384" y2="300" stroke="#999" stroke-width="1.5" stroke-dasharray="5 4"/><text x="390" y="304" fill="#555">ideal (linear)</text>
+     <line x1="360" y1="318" x2="384" y2="318" stroke="#0b5fff" stroke-width="2.2"/><text x="390" y="322" fill="#0b5fff">interleaved</text>
+     <line x1="360" y1="336" x2="384" y2="336" stroke="#b00020" stroke-width="2.2"/><text x="390" y="340" fill="#b00020">block (naïve)</text></g>
+</svg>
+<figcaption>Speedup vs. thread count for View 1. Note the block curve <em>dips at 3 threads</em>; the interleaved curve tracks the ideal line closely.</figcaption>
+</figure>
+
+<p class="q">Q: Is the speedup linear? Explain.</p>
+<p class="a">No, the <span class="bad">block</span> decomposition is far from linear and is even <em>non-monotonic</em> -
+3 threads (1.78×) is <em>slower</em> than 2 threads (1.99×). The Mandelbrot workload is spatially skewed:
+rows near the vertical center of the image are inside/near the set and cost ~<code>maxIterations</code> per pixel,
+while rows at the top and bottom escape almost immediately. With 2 threads the top and bottom halves happen
+to be roughly symmetric, so the split is balanced (~2×). With 3 threads the entire heavy center band lands on
+the middle thread, which becomes a bottleneck. The <span class="k">interleaved</span> decomposition removes this
+skew and tracks the ideal line closely (7.54× on 8 threads).</p>
+
+<p class="q">Q: Per-thread timing (block decomposition, 8 threads, View 1).</p>
+<table>
+<thead><tr><th>Thread</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr></thead>
+<tbody>
+<tr><td>Rows</td><td>0-149</td><td>150-299</td><td>300-449</td><td>450-599</td><td>600-749</td><td>750-899</td><td>900-1049</td><td>1050-1199</td></tr>
+<tr><td>Time (ms)</td><td>5.9</td><td>32</td><td>63</td><td class="bad">96</td><td class="bad">96</td><td>65</td><td>32</td><td>7.0</td></tr>
+</tbody>
+</table>
+<p class="a">The center threads (3, 4) do ~<strong>16×</strong> the work of the edge threads (0, 7). Since the phase
+finishes only when the <em>slowest</em> thread finishes (~96 ms), total speedup is pinned near 4× no matter how
+many threads are added - exactly what the graph shows. This directly explains the sub-linear block curve.</p>
+
+<p class="q">Q: Describe how you modified the code to improve speedup, and your final 8-thread speedup.</p>
+<p class="a">I switched from contiguous bands to an <strong>interleaved (cyclic) row assignment</strong>: thread <em>t</em>
+computes rows <em>t, t+P, t+2P, …</em> Because expensive and cheap rows are dealt out round-robin, every thread
+receives a near-identical mix of work, so per-thread times converge and the phase is no longer bottlenecked by one
+thread. Final <strong>8-thread speedup: 7.54× (View 1), 7.27× (View 2)</strong> - within the target 7-8× band.</p>
+
+<p class="q">Q: What happens with 16 threads? Is there an additional 2× over 8?</p>
+<p class="a">No - 16 threads gives only <strong>10.2×</strong> (View 1), not ~15×. The machine has <strong>8 physical
+cores</strong>; threads 9-16 run on the second SMT/hyperthread of each core and share the same execution units, L1/L2,
+and FP pipelines. SMT hides latency but adds little throughput for this compute-bound, ALU-heavy kernel, so the extra
+8 threads yield only a modest ~1.35× on top of 8. (On the handout's quad-core, the analogous crossover is at 4→8 threads.)</p>
+
+<!-- ============================ PROGRAM 2 ============================ -->
+<h2>Program 2 - Vectorizing Code Using SIMD Intrinsics</h2>
+<p><strong>Approach (<code>clampedExpVector</code>).</strong> Process <code>VECTOR_WIDTH</code> elements per iteration.
+Each lane starts <code>result = 1.0</code> and multiplies by <code>x</code> exactly <code>y</code> times using a
+running mask <code>(y &gt; 0)</code>; lanes whose exponent is exhausted are masked off while the rest continue. A
+final masked compare clamps values <code>&gt; 9.999999</code>. The ragged final block is handled with
+<code>_cs149_init_ones(N - i)</code> so the solution is correct for any <code>N</code> (verified at N = 17, 103, 10000).</p>
+
+<h3>Vector utilization vs. VECTOR_WIDTH (<code>-s 10000</code>)</h3>
+<table>
+<thead><tr><th>VECTOR_WIDTH</th><th>2</th><th>4</th><th>8</th><th>16</th></tr></thead>
+<tbody>
+<tr><td>Vector utilization</td><td>90.1%</td><td>85.8%</td><td>83.7%</td><td>82.6%</td></tr>
+<tr><td>Total vector instructions</td><td>203,143</td><td>118,213</td><td>64,533</td><td>33,708</td></tr>
+</tbody>
+</table>
+<p class="q">Q: Does utilization increase, decrease, or stay the same as width changes? Why?</p>
+<p class="a"><strong>It decreases</strong> as the vector grows wider. The multiply loop runs until the lane with the
+<em>largest</em> exponent in the block is finished; every other lane sits masked-off for the remaining iterations
+(this is SIMD divergence). A wider block is statistically more likely to contain a large-exponent element that
+drags out the whole gang, so the fraction of wasted lanes grows. The instruction count roughly halves each time the
+width doubles (fewer blocks), but the <em>utilization</em> - useful lane-work ÷ total lane-work - slips downward.</p>
+
+<p class="q">Extra credit - <code>arraySumVector</code> in O(N/VECTOR_WIDTH + log₂(VECTOR_WIDTH)).</p>
+<p class="a"><span class="good">Implemented and passing.</span> Phase 1 accumulates all blocks into one wide register with
+<em>N/W</em> vector adds. Phase 2 tree-reduces the W partial sums to a scalar in <em>log₂W</em> rounds, each round doing
+one <code>_cs149_hadd_float</code> (sum adjacent pairs) followed by one <code>_cs149_interleave_float</code> (pack the
+pair-sums into the front half). After log₂W rounds every lane holds the total.</p>
+
+<!-- ============================ PROGRAM 3 ============================ -->
+<h2>Program 3 - Parallel Fractal Generation Using ISPC</h2>
+
+<h3>Part 1 - ISPC SIMD (no tasks)</h3>
+<p class="q">Q: What is the maximum theoretical speedup from 8-wide AVX2? Why is the observed speedup lower?</p>
+<p class="a">The gang is 8-wide, so the ceiling from SIMD alone is <strong>8×</strong>. Measured:
+<strong>View 1 = 6.05×, View 2 = 5.14×</strong>. The gap is SIMD divergence: the 8 pixels in a gang have
+<em>different</em> iteration counts (some escape after a few iterations, some run to <code>maxIterations</code>), but the
+gang can only retire when its <em>slowest</em> lane finishes, so lanes that already escaped are wasted. The loss is
+worst along the fractal boundary and inside the black interior, where neighbouring pixels diverge sharply. View 2 is
+more divergent overall, giving the lower speedup. Fixed overheads (loop setup, memory) shave off a little more.</p>
+
+<h3>Part 2 - ISPC with tasks</h3>
+<p><strong>Approach.</strong> The starter launches just 2 tasks (<code>rowsPerTask = height/2</code>), which uses only
+~2 cores and inherits the same center-heavy imbalance. I launch <strong>many fine-grained tasks</strong>
+(<code>ROWS_PER_TASK = 6</code> → ~134 tasks for height 800) and clamp the last task's row range. Small tasks let the
+ISPC runtime hand each idle core the next strip on demand (dynamic load balancing).</p>
+<table>
+<thead><tr><th>rows/task</th><th>≈ tasks</th><th>View 1</th><th>View 2</th></tr></thead>
+<tbody>
+<tr><td>height/2 (starter)</td><td>2</td><td>11.6×</td><td>8.3×</td></tr>
+<tr><td>1</td><td>800</td><td>22.3×</td><td>14.0×</td></tr>
+<tr><td>2</td><td>400</td><td>54.7×</td><td>27.1×</td></tr>
+<tr><td>4</td><td>200</td><td>59.9×</td><td>45.1×</td></tr>
+<tr><td class="k">6 (chosen)</td><td class="k">134</td><td class="good">64.6× (run: 58.6×)</td><td class="good">51.1× (run: 47.9×)</td></tr>
+<tr><td>16</td><td>50</td><td>63.2×</td><td>44.1×</td></tr>
+<tr><td>25</td><td>32</td><td>65.1×</td><td>37.5×</td></tr>
+</tbody>
+</table>
+<p class="a"><strong>Chosen config easily exceeds the 32× target</strong> (58-65× View 1, 48-51× View 2 on this 8-core box;
+&gt;32× is what a quad-core would reach). Methodology: sweep granularity. Too coarse (2 tasks) → only 2 cores busy and
+load-imbalanced; too fine (1 row/task, 800 tasks) → per-launch overhead dominates and speedup collapses to 22×. The
+sweet spot is enough tasks to keep all 8 cores/16 threads balanced (~130) while staying coarse enough to amortize
+launch cost - <code>ROWS_PER_TASK = 6</code>.</p>
+
+<p class="q">Extra credit - <code>std::thread</code> (Prog 1) vs. ISPC tasks: what happens if you launch 10,000 of each?</p>
+<p class="a">Program 1 spawns one <em>OS thread</em> per unit. 10,000 <code>std::thread</code>s = 10,000 kernel threads on
+8 cores → massive oversubscription: context-switch storms, scheduler overhead, and ~10&nbsp;MB× stacks of memory
+pressure; performance craters. An ISPC <code>launch[10000]</code> creates 10,000 lightweight <em>tasks</em> placed in a
+work queue and drained by a small pool of exactly <em>#cores</em> worker threads. Tasks are cheap descriptors, not
+kernel threads, so 10,000 of them just gives the runtime fine-grained work to load-balance - near-ideal behaviour.
+Tasks are an abstraction over a thread pool; raw threads are the scheduled resource itself.</p>
+
+<!-- ============================ PROGRAM 4 ============================ -->
+<h2>Program 4 - Iterative Square Root</h2>
+<table>
+<thead><tr><th>Input</th><th>ISPC (SIMD only)</th><th>ISPC + tasks</th></tr></thead>
+<tbody>
+<tr><td>Baseline (random [0.001, 2.999))</td><td>5.01×</td><td>61.1×</td></tr>
+<tr><td>Best case (all = 2.998)</td><td class="good">6.60×</td><td>69.5×</td></tr>
+<tr><td>Worst case (1 hard value / gang of 8)</td><td class="bad">0.90×</td><td>8.6×</td></tr>
+</tbody>
+</table>
+<p class="q">Q: Report the SIMD speedup and the multi-core speedup, and quantify each contribution.</p>
+<p class="a">On the baseline input, <strong>SIMD alone gives ~5.0×</strong> and <strong>SIMD + tasks gives ~61×</strong>.
+So vectorization contributes ~5×, and multi-core parallelism contributes an additional ~12× on top of that
+(61 ÷ 5), using 64 tasks spread over 8 cores + SMT. The two axes are roughly multiplicative.</p>
+
+<p class="q">Q: Modify the input to maximize the ISPC (no-task) speedup. Explain.</p>
+<p class="a">Set <strong>every element to 2.998</strong> - the value that takes the most Newton iterations to converge
+(note x = 3.0 never converges: the update collapses the guess to 0). Two effects combine: (1) all 8 lanes run the
+<em>same</em> iteration count → zero divergence, full lane utilization; (2) many iterations per element → the kernel is
+compute-bound, so per-element and memory overheads are amortized. Result: <strong>6.60×</strong>, close to the 8× ceiling
+(the residual gap is memory traffic for 20M floats plus fixed loop overhead).</p>
+
+<p class="q">Q: Construct an input that <em>minimizes</em> the ISPC (no-task) speedup. Why is 8-wide SIMD inefficient here?</p>
+<p class="a">Make <strong>one element in every gang of 8 the hard value (2.998) and the other seven trivial (1.0,
+which converges in zero iterations)</strong>. The gang still loops to the hard lane's iteration count while the other
+seven lanes are masked-off the whole time - so the vector unit does the work of a single scalar element per 8 lanes.
+Result: <strong class="bad">0.90×</strong>, i.e. <em>slower</em> than scalar, because we pay masking/vector overhead for
+essentially no parallel work. This is the canonical demonstration that divergence destroys SIMD efficiency.</p>
+
+<p class="q">Extra credit - hand-written AVX2 intrinsics.</p>
+<p class="a">Not submitted. The path: load 8 floats with <code>_mm256_loadu_ps</code>, run the Newton update with
+<code>_mm256_fmadd_ps</code>/<code>_mm256_mul_ps</code>, compute the mask with <code>_mm256_cmp_ps</code>
+(<code>|guess²·x − 1| &gt; threshold</code>), and blend updates via <code>_mm256_blendv_ps</code>, looping while the
+mask is non-zero (<code>_mm256_movemask_ps</code>). That mirrors exactly what ISPC generates for
+<code>--target=avx2-i32x8</code>, so it should match ISPC's ~5× on the baseline input.</p>
+
+<!-- ============================ PROGRAM 5 ============================ -->
+<h2>Program 5 - BLAS saxpy</h2>
+<table>
+<thead><tr><th>Version</th><th>Time</th><th>Bandwidth</th></tr></thead>
+<tbody>
+<tr><td>ISPC (no tasks)</td><td>10.85 ms</td><td>27.5 GB/s</td></tr>
+<tr><td>ISPC + tasks</td><td>8.01 ms</td><td>37.2 GB/s</td></tr>
+<tr><td>Speedup from tasks</td><td colspan="2">1.36×</td></tr>
+</tbody>
+</table>
+<p class="q">Q: What speedup do tasks give? Is a large improvement possible? Why or why not?</p>
+<p class="a">Only <strong>1.36×</strong>. saxpy (<code>result = scale·X + Y</code>) does 2 loads + 1 store and a single
+FMA per element - an arithmetic intensity of ~0.08 flop/byte. It is <strong>memory-bandwidth bound</strong>, not
+compute bound. One or two cores already saturate the DRAM controller, so extra cores/threads add almost nothing. No
+substantial speedup is achievable on this platform without reducing memory traffic.</p>
+
+<p class="q">Extra credit - why is the bandwidth computed as <code>4·N·sizeof(float)</code> when only 3 arrays are touched?</p>
+<p class="a"><strong>Write-allocate.</strong> Storing to <code>result[]</code> first triggers a read-for-ownership: the
+destination cache line must be fetched from memory before it can be (over)written. So the "one store" actually costs
+one read + one write. Total traffic = load X + load Y + RFO(result) + write(result) = <strong>4·N·sizeof(float)</strong>.
+Using non-temporal / streaming stores (e.g. <code>_mm256_stream_ps</code>) skips the RFO, cutting traffic to 3·N and
+giving up to a 4/3 ≈ 1.33× bandwidth improvement - the realistic "best case" for this kernel.</p>
+
+<!-- ============================ PROGRAM 6 ============================ -->
+<h2>Program 6 - K-Means Clustering</h2>
+<p class="note">Measured on a locally-generated dataset (M = 200,000, N = 100, K = 3, ε = 0.1, 51 iterations to
+convergence), since the official <code>data.dat</code> lives on Stanford AFS. The relative speedups are
+data-independent.</p>
+
+<p><strong>Profiling methodology.</strong> I wrapped each of the three phase calls in the main loop with
+<code>CycleTimer</code> and summed per-phase time across all iterations:</p>
+<table>
+<thead><tr><th>Phase</th><th>Time</th><th>Share</th><th>Complexity</th></tr></thead>
+<tbody>
+<tr><td class="bad">computeAssignments</td><td>2529 ms</td><td>68%</td><td>O(K·M·N)</td></tr>
+<tr><td>computeCost</td><td>721 ms</td><td>19%</td><td>O(M·N)</td></tr>
+<tr><td>computeCentroids</td><td>455 ms</td><td>12%</td><td>O(M·N)</td></tr>
+<tr><td><strong>Total (baseline)</strong></td><td><strong>3705 ms</strong></td><td>100%</td><td></td></tr>
+</tbody>
+</table>
+
+<p class="q">Q: What is the bottleneck, and how did you optimize it?</p>
+<p class="a"><strong>Hypothesis:</strong> <code>computeAssignments</code> is the hotspot - it is the only O(K·M·N) phase and
+calls the expensive <code>dist</code> (a <code>pow</code> + <code>sqrt</code> over N dimensions) for every
+(point, centroid) pair. Profiling confirms it at 68%.
+<strong>Fix:</strong> parallelize <em>only</em> this phase across 8 <code>std::thread</code>s, partitioned over
+<em>data points</em>. Because each point is written by exactly one thread, the ranges are disjoint - <strong>no locks,
+no races</strong>. I also swapped the loop nesting to point-outer so each point keeps its running minimum in a register
+(dropping the M-sized <code>minDist</code> scratch array).</p>
+
+<p class="q">Q: Final speedup.</p>
+<p class="a"><code>computeAssignments</code> fell from <strong>2529 → 384 ms (6.6× on the phase)</strong>; total fell from
+<strong>3705 → 1473 ms</strong> = <strong class="good">2.52× overall</strong> (target ≥ 2.1×). The clustering output
+(<code>end.log</code>) is byte-identical to the baseline - the result is unchanged.</p>
+
+<p class="q">Q: There are different axes of parallelism - how did you decide?</p>
+<p class="a">Two axes exist: over <em>points</em> (M, ~200k-way) and over <em>centroids</em> (K, only 3-way). I chose points
+because M ≫ K gives far more parallel slack and perfectly balanced, contention-free partitions; a K-way split would cap
+at 3× and be imbalanced. I spent the effort on the single phase Amdahl's law rewards most (the 68% one). After the fix,
+<code>computeCost</code> + <code>computeCentroids</code> now dominate (~77% of the remaining 1.5 s), so parallelizing
+<code>computeAssignments</code> alone is capped near 1/0.32 ≈ 3.1× overall - consistent with the measured 2.5×.</p>
+
+<hr style="margin-top:34px; border:none; border-top:1px solid var(--line)">
+<p class="note">Deliverable code files: Program 2 → <code>prob2.cpp</code>; Program 6 → <code>prob6.cpp</code>.
+Additional modified sources (Programs 1, 3, 4) and the data generator are included under <code>code/</code> for
+reproducibility. All code compiles and runs unmodified with ISPC 1.28.1 + g++.</p>
+
+</body>
+</html>
