@@ -23,10 +23,11 @@ myth machine, so my core-scaling ceilings are ~2× the handout's):
 
 ```
 lecture-XX-.../
-  writeup.pdf     - full writeup: answers, graphs, analysis
-  RESULTS.md      - raw measured numbers
-  code/           - submission-named deliverable files
-  asst1/          - complete buildable source tree (my solutions applied)
+  lecture-summary.md  - my notes on the lecture itself
+  writeup.pdf         - full writeup: answers, graphs, analysis
+  RESULTS.md          - raw measured numbers
+  code/               - submission-named deliverable files
+  asst1/              - complete buildable source tree (my solutions applied)
 ```
 
 ## Building (lecture 1)
